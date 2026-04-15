@@ -1,27 +1,37 @@
-// lib/Controllers/video_player_controller.dart
-
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 final videoPlayerProvider = StateNotifierProvider.autoDispose
     .family<VideoPlayerNotifier, AsyncValue<VideoPlayerController>, String>(
-  (ref, path) => VideoPlayerNotifier(path),
+  (ref, path) => VideoPlayerNotifier(ref, path),
 );
 
 class VideoPlayerNotifier
     extends StateNotifier<AsyncValue<VideoPlayerController>> {
   final String videoPath;
+  final Ref ref;
+  VideoPlayerController? _controller;
 
-  VideoPlayerNotifier(this.videoPath) : super(const AsyncLoading()) {
+  VideoPlayerNotifier(this.ref, this.videoPath) : super(const AsyncLoading()) {
     initialize();
   }
 
   Future<void> initialize() async {
     try {
       final controller = VideoPlayerController.file(File(videoPath));
-
       await controller.initialize();
+      _controller = controller;
+
+      controller.addListener(() {
+        if (mounted) {
+          state = AsyncData(controller);
+        }
+      });
+
+      ref.onDispose(() {
+        controller.dispose();
+      });
 
       state = AsyncData(controller);
     } catch (e, st) {
@@ -29,23 +39,20 @@ class VideoPlayerNotifier
     }
   }
 
-  void playPause() {
-    final controller = state.value;
-
-    if (controller == null) return;
-
-    if (controller.value.isPlaying) {
-      controller.pause();
-    } else {
-      controller.play();
+  Future<void> playPause() async {
+    final controller = _controller;
+    if (controller == null) {
+      return;
     }
 
-    state = AsyncData(controller);
-  }
+    if (controller.value.isPlaying) {
+      await controller.pause();
+    } else {
+      await controller.play();
+    }
 
-  @override
-  void dispose() {
-    state.value?.dispose();
-    super.dispose();
+    if (mounted) {
+      state = AsyncData(controller);
+    }
   }
 }

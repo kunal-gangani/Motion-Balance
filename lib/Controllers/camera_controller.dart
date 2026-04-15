@@ -1,15 +1,14 @@
-import 'dart:async';
-import 'dart:developer';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:motion_balance/Services/permission_service.dart';
-import '../Services/camera_service.dart';
+import '../services/camera_service.dart';
+import '../services/permission_service.dart';
+
 
 enum CameraScreenStatus {
   initial,
   requestingPermissions,
   initializing,
   ready,
-  error,
+  error
 }
 
 class CameraState {
@@ -52,51 +51,42 @@ class CameraState {
   }
 }
 
+// ─── Notifier ─────────────────────────────────────────────────────────────────
+
 class CameraNotifier extends AutoDisposeNotifier<CameraState> {
   late final CameraService _camera;
   late final PermissionService _permission;
-  Timer? _timer;
 
   @override
   CameraState build() {
     _camera = ref.watch(cameraServiceProvider);
     _permission = ref.watch(permissionServiceProvider);
-
+    // Kick off init as soon as the notifier is built
     Future.microtask(initialize);
-
-    ref.onDispose(() {
-      _timer?.cancel();
-    });
-
     return const CameraState();
   }
 
   Future<void> initialize() async {
-    state = state.copyWith(
-      status: CameraScreenStatus.requestingPermissions,
-    );
+    state = state.copyWith(status: CameraScreenStatus.requestingPermissions);
 
     final perms = await _permission.requestAll();
-
     if (!perms.allGranted) {
       state = state.copyWith(
         status: CameraScreenStatus.error,
-        errorMessage: "Camera and microphone permissions required.",
+        errorMessage: 'Camera and microphone permissions are required.',
       );
       return;
     }
 
-    state = state.copyWith(
-      status: CameraScreenStatus.initializing,
-    );
+    state = state.copyWith(status: CameraScreenStatus.initializing);
 
     try {
       await _camera.initialize();
-
+      final bestMode = _camera.bestAvailableStabilizationMode();
       state = state.copyWith(
         status: CameraScreenStatus.ready,
-        stabilizationMode: _camera.bestAvailableStabilizationMode(),
-        isFrontCamera: _camera.activeLensDirection.name == "front",
+        stabilizationMode: bestMode,
+        isFrontCamera: _camera.activeLensDirection.name == 'front',
       );
     } catch (e) {
       state = state.copyWith(
@@ -107,73 +97,50 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
   }
 
   Future<void> startRecording() async {
+    if (state.isRecording) return;
     await _camera.startRecording();
-
-    state = state.copyWith(
-      isRecording: true,
-      recordingDuration: Duration.zero,
-    );
-
-    _startTimer();
+    state = state.copyWith(isRecording: true, recordingDuration: Duration.zero);
+    _startDurationTick();
   }
 
-  Future<void> stopRecording() async {
-    await _camera.stopRecording();
-
-    _timer?.cancel();
-
-    state = state.copyWith(
-      isRecording: false,
-      recordingDuration: Duration.zero,
-    );
+  Future<RecordingResult?> stopRecording() async {
+    if (!state.isRecording) return null;
+    final result = await _camera.stopRecording();
+    state =
+        state.copyWith(isRecording: false, recordingDuration: Duration.zero);
+    return result;
   }
 
-  Future<void> toggleRecording() async {
-    if (state.isRecording) {
-      await stopRecording();
-    } else {
-      await startRecording();
-    }
-  }
-
-  void _startTimer() {
-    _timer?.cancel();
-
-    _timer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) {
-        state = state.copyWith(
-          recordingDuration: _camera.currentRecordingDuration,
-        );
-      },
-    );
+  void _startDurationTick() {
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!state.isRecording) return false;
+      state = state.copyWith(
+        recordingDuration: _camera.currentRecordingDuration,
+      );
+      return true;
+    });
   }
 
   Future<void> switchCamera() async {
+    if (state.isSwitching) return;
     state = state.copyWith(isSwitching: true);
-
     await _camera.switchCamera();
-
     state = state.copyWith(
       isSwitching: false,
-      isFrontCamera: _camera.activeLensDirection.name == "front",
+      isFrontCamera: _camera.activeLensDirection.name == 'front',
     );
   }
 
   Future<void> setStabilizationMode(StabilizationMode mode) async {
     await _camera.setStabilizationMode(mode);
-
-    state = state.copyWith(
-      stabilizationMode: mode,
-    );
+    state = state.copyWith(stabilizationMode: mode);
   }
 
   Future<void> openPermissionSettings() => _permission.openSettings();
-
-  void openGallery() {
-    log("Open Gallery Clicked");
-  }
 }
+
+// ─── Provider ─────────────────────────────────────────────────────────────────
 
 final cameraNotifierProvider =
     NotifierProvider.autoDispose<CameraNotifier, CameraState>(

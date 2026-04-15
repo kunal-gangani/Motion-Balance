@@ -1,5 +1,3 @@
-// lib/Views/Screens/video_player_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:motion_balance/Controllers/video_play_controller.dart';
@@ -14,10 +12,14 @@ class VideoPlayerScreen extends ConsumerWidget {
     required this.videoPath,
   });
 
-  void _shareVideo() {
-    Share.shareXFiles([
-      XFile(videoPath),
-    ]);
+  Future<void> _shareVideo() async {
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [
+          XFile(videoPath),
+        ],
+      ),
+    );
   }
 
   @override
@@ -32,7 +34,9 @@ class VideoPlayerScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
-            onPressed: _shareVideo,
+            onPressed: () {
+              _shareVideo();
+            },
           ),
         ],
       ),
@@ -60,7 +64,11 @@ class VideoPlayerScreen extends ConsumerWidget {
           onPressed: () {
             ref.read(videoPlayerProvider(videoPath).notifier).playPause();
           },
-          child: const Icon(Icons.play_arrow),
+          child: Icon(
+            playerState.valueOrNull?.value.isPlaying == true
+                ? Icons.pause
+                : Icons.play_arrow,
+          ),
         ),
         orElse: () => null,
       ),

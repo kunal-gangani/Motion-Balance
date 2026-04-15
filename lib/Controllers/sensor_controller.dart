@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:math' hide log;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
@@ -59,32 +60,24 @@ class SensorNotifier extends StateNotifier<SensorState> {
   }
 
   void _listenAccelerometer() {
-    _accelSub = userAccelerometerEventStream().listen(
+    _accelSub = userAccelerometerEventStream(
+      samplingPeriod: SensorInterval.uiInterval,
+    ).listen(
       (event) {
-        final magnitude = sqrt(
-          event.x * event.x + event.y * event.y + event.z * event.z,
-        );
-
+        final magnitude =
+            sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
         final delta = (magnitude - _lastMagnitude).abs();
-
         _lastMagnitude = magnitude;
 
         _smoothedShake = (_smoothedShake * 0.8) + (delta * 0.2);
-
-        final guidance = _generateGuidance(_smoothedShake);
-
-        final score = _calculateSmoothnessScore(_smoothedShake);
+        final double calculatedRoll = atan2(event.y, event.z) * (180 / pi);
 
         state = state.copyWith(
           currentShake: _smoothedShake,
-          guidanceText: guidance,
-          smoothnessScore: score,
+          currentRoll: calculatedRoll,
+          guidanceText: _generateGuidance(_smoothedShake),
+          smoothnessScore: _calculateSmoothnessScore(_smoothedShake),
           accelerometerAvailable: true,
-        );
-      },
-      onError: (_) {
-        state = state.copyWith(
-          accelerometerAvailable: false,
         );
       },
     );
