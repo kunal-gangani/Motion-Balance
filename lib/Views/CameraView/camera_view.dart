@@ -1,99 +1,181 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:motion_balance/Controllers/sensor_controller.dart'
-    show SensorController;
-import 'package:motion_balance/Views/Widgets/horizon_leveler.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:motion_balance/Views/Widgets/recording_button.dart';
 
-class CameraView extends StatefulWidget {
-  const CameraView({super.key});
+import '../../Controllers/camera_controller.dart';
+import '../../Controllers/sensor_controller.dart';
+import '../../Services/camera_service.dart';
+
+import '../Widgets/camera_error_view.dart';
+import '../Widgets/horizon_leveler.dart';
+import '../Widgets/recording_timer.dart';
+import '../Widgets/stability_meter.dart';
+import '../Widgets/stabilization_badge.dart';
+
+class CameraScreen extends ConsumerWidget {
+  const CameraScreen({super.key});
 
   @override
-  // ignore: library_private_types_in_public_api
-  _CameraViewState createState() => _CameraViewState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cameraState = ref.watch(cameraNotifierProvider);
+    final cameraService = ref.watch(cameraServiceProvider);
+    final sensorState = ref.watch(sensorControllerProvider);
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: switch (cameraState.status) {
+        CameraScreenStatus.initial ||
+        CameraScreenStatus.requestingPermissions ||
+        CameraScreenStatus.initializing =>
+          const _LoadingView(),
+        CameraScreenStatus.error => CameraErrorView(
+            message: cameraState.errorMessage ?? "Unknown error",
+            onRetry: () =>
+                ref.read(cameraNotifierProvider.notifier).initialize(),
+            onSettings: () => ref
+                .read(cameraNotifierProvider.notifier)
+                .openPermissionSettings(),
+          ),
+        CameraScreenStatus.ready => CameraPreviewLayout(
+            cameraState: cameraState,
+            cameraService: cameraService,
+            sensorState: sensorState,
+          ),
+      },
+    );
+  }
 }
 
-class _CameraViewState extends State<CameraView> {
-  CameraController? _cameraController;
-  final SensorController _sensorController = SensorController();
-  double _currentRoll = 0.0;
-  double _shakeIntensity = 0.0;
-
-  @override
-  void initState() {
-    super.initState();
-    _initCamera();
-    _sensorController.onDataUpdate = (shake, roll) {
-      setState(() {
-        _shakeIntensity = shake;
-        _currentRoll = roll;
-      });
-    };
-    _sensorController.startListening();
-  }
-
-  Future<void> _initCamera() async {
-    final cameras = await availableCameras();
-    _cameraController = CameraController(cameras.first, ResolutionPreset.max);
-    await _cameraController!.initialize();
-
-    setState(() {});
-  }
+class _LoadingView extends StatelessWidget {
+  const _LoadingView();
 
   @override
   Widget build(BuildContext context) {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      return Container(color: Colors.black);
+    return const Center(
+      child: CircularProgressIndicator(color: Colors.white),
+    );
+  }
+}
+
+class CameraPreviewLayout extends ConsumerWidget {
+  final CameraState cameraState;
+  final CameraService cameraService;
+  final SensorState sensorState;
+
+  const CameraPreviewLayout({
+    super.key,
+    required this.cameraState,
+    required this.cameraService,
+    required this.sensorState,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final CameraController? controller = cameraService.controller;
+
+    if (controller == null || !controller.value.isInitialized) {
+      return const _LoadingView();
     }
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          CameraPreview(_cameraController!),
-
-          // Overlay UI
-          HorizonLeveler(roll: _currentRoll),
-
-          // Guidance Text
-          Positioned(
-            top: 60,
-            width: MediaQuery.of(context).size.width,
-            child: Center(
-              child: Text(
-                _sensorController.getGuidance(_shakeIntensity),
-                style: TextStyle(
-                  color: _shakeIntensity > 3 ? Colors.red : Colors.greenAccent,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 2,
-                ),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        CameraPreview(controller),
+        HorizonLeveler(
+          roll: sensorState.currentRoll,
+        ),
+        Positioned(
+          right: 20,
+          top: 140,
+          child: StabilityMeter(
+            intensity: sensorState.shakeIntensity,
+          ),
+        ),
+        Positioned(
+          top: 70,
+          width: MediaQuery.of(context).size.width,
+          child: Center(
+            child: Text(
+              sensorState.guidanceText,
+              style: TextStyle(
+                color: sensorState.shakeIntensity > 3
+                    ? Colors.red
+                    : Colors.greenAccent,
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+                letterSpacing: 1.1,
               ),
             ),
           ),
-
-          // Record Button
-          Positioned(
-            bottom: 50,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: FloatingActionButton(
-                backgroundColor: Colors.white,
-                onPressed: () {}, // Handled in Phase 2
-                child: const Icon(
-                  Icons.videocam,
-                  color: Colors.black,
+        ),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                StabilizationBadge(
+                  mode: cameraState.stabilizationMode,
                 ),
-              ),
+                const Spacer(),
+                if (cameraState.isRecording)
+                  RecordingTimer(
+                    duration: cameraState.recordingDuration,
+                  ),
+              ],
             ),
-          )
-        ],
-      ),
+          ),
+        ),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 36),
+            child: CameraBottomControls(
+              cameraState: cameraState,
+            ),
+          ),
+        ),
+      ],
     );
   }
+}
+
+class CameraBottomControls extends ConsumerWidget {
+  final CameraState cameraState;
+
+  const CameraBottomControls({
+    super.key,
+    required this.cameraState,
+  });
 
   @override
-  void dispose() {
-    _cameraController?.dispose();
-    _sensorController.dispose();
-    super.dispose();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(cameraNotifierProvider.notifier);
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        IconButton(
+          icon: Icon(
+            cameraState.isFrontCamera ? Icons.camera_rear : Icons.camera_front,
+            color: Colors.white,
+            size: 30,
+          ),
+          onPressed: notifier.switchCamera,
+        ),
+        RecordButton(
+          isRecording: cameraState.isRecording,
+          onTap: notifier.toggleRecording,
+        ),
+        IconButton(
+          icon: const Icon(
+            Icons.video_library,
+            color: Colors.white,
+            size: 28,
+          ),
+          onPressed: notifier.openGallery,
+        ),
+      ],
+    );
   }
 }

@@ -18,6 +18,8 @@ dependencies:
   path: ^1.9.0
   wakelock_plus: ^1.2.8
   cupertino_icons: ^1.0.8
+  video_player: ^2.11.1
+  share_plus: ^13.0.0
 
 dev_dependencies:
   flutter_test:

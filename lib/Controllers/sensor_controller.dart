@@ -1,32 +1,143 @@
 import 'dart:async';
+import 'dart:math';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
-class SensorController {
-  StreamSubscription<UserAccelerometerEvent>? _accelSub;
-  double currentShake = 0.0;
-  
-  // Callback to update the View
-  Function(double shake, double roll)? onDataUpdate;
+class SensorState {
+  final double currentShake;
+  final double currentRoll;
+  final String guidanceText;
+  final double smoothnessScore;
+  final bool gyroscopeAvailable;
+  final bool accelerometerAvailable;
 
-  void startListening() {
-    _accelSub = userAccelerometerEventStream().listen((event) {
-      // Calculate magnitude of movement
-      currentShake = (event.x.abs() + event.y.abs() + event.z.abs()) / 3;
-      
-      // Calculate roll for horizon (simplified)
-      double roll = event.x / 9.81; 
-      
-      onDataUpdate?.call(currentShake, roll);
-    });
-  }
+  const SensorState({
+    this.currentShake = 0.0,
+    this.currentRoll = 0.0,
+    this.guidanceText = "STABLE",
+    this.smoothnessScore = 100.0,
+    this.gyroscopeAvailable = true,
+    this.accelerometerAvailable = true,
+  });
 
-  void dispose() {
-    _accelSub?.cancel();
-  }
+  double get shakeIntensity => currentShake;
 
-  String getGuidance(double shake) {
-    if (shake > 5.0) return "MOVE SLOWER";
-    if (shake > 2.0) return "SMOOTH PANNING";
-    return "STABLE";
+  SensorState copyWith({
+    double? currentShake,
+    double? currentRoll,
+    String? guidanceText,
+    double? smoothnessScore,
+    bool? gyroscopeAvailable,
+    bool? accelerometerAvailable,
+  }) {
+    return SensorState(
+      currentShake: currentShake ?? this.currentShake,
+      currentRoll: currentRoll ?? this.currentRoll,
+      guidanceText: guidanceText ?? this.guidanceText,
+      smoothnessScore: smoothnessScore ?? this.smoothnessScore,
+      gyroscopeAvailable: gyroscopeAvailable ?? this.gyroscopeAvailable,
+      accelerometerAvailable:
+          accelerometerAvailable ?? this.accelerometerAvailable,
+    );
   }
 }
+
+class SensorNotifier extends StateNotifier<SensorState> {
+  StreamSubscription<UserAccelerometerEvent>? _accelSub;
+  StreamSubscription<GyroscopeEvent>? _gyroSub;
+
+  double _lastMagnitude = 0.0;
+  double _smoothedShake = 0.0;
+
+  SensorNotifier() : super(const SensorState()) {
+    startListening();
+  }
+
+  void startListening() {
+    _listenAccelerometer();
+    _listenGyroscope();
+  }
+
+  void _listenAccelerometer() {
+    _accelSub = userAccelerometerEventStream().listen(
+      (event) {
+        final magnitude = sqrt(
+          event.x * event.x + event.y * event.y + event.z * event.z,
+        );
+
+        final delta = (magnitude - _lastMagnitude).abs();
+
+        _lastMagnitude = magnitude;
+
+        _smoothedShake = (_smoothedShake * 0.8) + (delta * 0.2);
+
+        final guidance = _generateGuidance(_smoothedShake);
+
+        final score = _calculateSmoothnessScore(_smoothedShake);
+
+        state = state.copyWith(
+          currentShake: _smoothedShake,
+          guidanceText: guidance,
+          smoothnessScore: score,
+          accelerometerAvailable: true,
+        );
+      },
+      onError: (_) {
+        state = state.copyWith(
+          accelerometerAvailable: false,
+        );
+      },
+    );
+  }
+
+  void _listenGyroscope() {
+    _gyroSub = gyroscopeEventStream().listen(
+      (event) {
+        final roll = event.z * 8.0;
+
+        state = state.copyWith(
+          currentRoll: roll,
+          gyroscopeAvailable: true,
+        );
+      },
+      onError: (_) {
+        state = state.copyWith(
+          gyroscopeAvailable: false,
+        );
+      },
+    );
+  }
+
+  String _generateGuidance(double shake) {
+    if (shake > 6.0) {
+      return "REDUCE SUDDEN PANS";
+    } else if (shake > 4.0) {
+      return "MOVE SLOWER";
+    } else if (shake > 2.0) {
+      return "SMOOTH PANNING";
+    } else {
+      return "STABLE";
+    }
+  }
+
+  double _calculateSmoothnessScore(double shake) {
+    final score = 100 - (shake * 12);
+    return score.clamp(0, 100);
+  }
+
+  void reset() {
+    state = const SensorState();
+  }
+
+  @override
+  void dispose() {
+    _accelSub?.cancel();
+    _gyroSub?.cancel();
+    super.dispose();
+  }
+}
+
+final sensorControllerProvider =
+    StateNotifierProvider<SensorNotifier, SensorState>(
+  (ref) => SensorNotifier(),
+);
