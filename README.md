@@ -1,111 +1,92 @@
-# MotionBalance 🎥✨
 
-**MotionBalance** is a production-ready Flutter application designed to act as a **Software Gimbal Assistant**. Instead of claiming to replace motorized hardware, it bridges the gap for mobile creators by leveraging native hardware stabilization, real-time sensor guidance, and post-processing algorithms.
+-----
+# MotionBalance
 
----
+### **The AI-Powered Software Gimbal for Mobile Filmmakers**
 
-## 🚀 Core Mission
-To improve handheld video stability on Android and iOS through an intelligent, phased stabilization approach:
-1.  **Native Support:** Trigger high-end hardware stabilization where available.
-2.  **Sensor Guidance:** Real-time IMU (Inertial Measurement Unit) monitoring to coach the user into smoother movement.
-3.  **Post-Processing:** FFmpeg-based digital stabilization for "rescuing" shaky footage.
+**MotionBalance** is a high-performance Flutter application designed to bridge the gap between handheld mobile filming and professional stabilized cinematography. By fusing **Real-time Computer Vision (ML Kit)** with **Hardware IMU Sensors (Gyroscope/Accelerometer)**, MotionBalance provides an intelligent coaching HUD and digital stabilization guidance.
 
----
+-----
 
-## 🏗 Architecture
-The project follows the **MVC (Model-View-Controller)** pattern combined with **Clean Architecture** principles to ensure platform-specific hardware logic remains decoupled from the UI.
+## Key Features
 
--   **Models:** Represent device capabilities, sensor data structures, and recording states.
--   **Views:** Modern, creator-focused dark UI featuring horizon levelers and stability meters.
--   **Controllers:** Manage camera lifecycles, stream IMU data, and orchestrate FFmpeg commands.
--   **Services:** Handle persistent storage, permission requests, and platform-specific capability detection.
+### Active Subject Tracking (AI)
 
----
+  * **Face-Lock Technology:** Utilizes Google ML Kit to identify and track subjects in real-time.
+  * **Intelligent Framing:** Calculates normalized offsets to provide live directional coaching (e.g., "Pan Left," "Tilt Up").
+  * **Isolate Optimization:** ML processing is offloaded to background threads to maintain a buttery-smooth **60 FPS** camera preview.
 
-## 🛠 Features
+### Sensor Fusion & Stability
 
-### 1. Camera & Native Stabilization
-- Supports front and rear camera switching.
-- Automatic detection of `VideoStabilizationMode` (Auto, Cinematic, Off).
-- Graceful degradation: If native stabilization fails, the app automatically switches to **Sensor Guidance Mode**.
+  * **Software Gimbal Logic:** Merges AI tracking data with gyroscope velocity to detect and warn against "Oversteering."
+  * **Dynamic Horizon Leveler:** A cinematic HUD overlay that ensures perfectly level shots using real-time roll data.
+  * **Stability Meter:** Real-time shake intensity analysis with visual alerts for high-vibration movement.
 
-### 2. Live Stability Assistant (IMU)
-- **Horizon Leveler:** A dynamic UI overlay using the accelerometer to help keep the phone perfectly level.
-- **Shake Meter:** Real-time analysis of gyroscope data to calculate "Motion Smoothness."
-- **Coaching Overlays:** Live prompts like "Move Slower," "Reduce Sudden Pans," or "Hold Level."
+### Tactile HUD (Haptics)
 
-### 3. Recording Profiles
-- **Walk Mode:** Optimized for vertical oscillation (bobbing) detection.
-- **Pan Mode:** Monitors yaw/pitch to ensure smooth cinematic rotations.
-- **Vlog Mode:** Prioritizes horizon stability for selfie-angle shots.
+  * **Lock Confirmation:** A light haptic pulse triggers the moment the AI locks onto a subject.
+  * **Signal Loss Warning:** A double-pulse vibration alerts the filmmaker if the subject leaves the frame, allowing for "eyes-off" operation.
 
-### 4. Post-Processing Engine
-- Powered by `ffmpeg_kit_flutter`.
-- Offers three strengths: **Light**, **Balanced**, and **Pro Gimbal**.
-- Side-by-side "Before vs. After" comparison screen.
+### Professional Cine-UI
 
----
+  * **Glassmorphic HUD:** A futuristic, minimal interface designed for high visibility in outdoor lighting.
+  * **Side-by-Side Mode:** A comparison toggle showing the "Raw Feed" vs. "AI-Enhanced" stabilized view.
 
-## 📦 Requirements & Installation
+-----
 
-### Prerequisites
-- Flutter 3.x
-- Dart 3.x
-- Physical device (Sensors and Camera stabilization cannot be tested on Emulators/Simulators).
+## Tech Stack
 
-### Dependencies
-- `camera`: Camera hardware access.
-- `sensors_plus`: Gyroscope and Accelerometer data.
-- `ffmpeg_kit_flutter_full`: Video stabilization filters (`vidstab`).
-- `video_player`: Post-process previewing.
-- `permission_handler`: Managing hardware permissions.
+  * **Framework:** Flutter (Dart)
+  * **State Management:** Riverpod 2.x (Notifier & StateNotifier)
+  * **AI/ML:** Google ML Kit (Face Detection)
+  * **Hardware:** Camera & Sensors Plus (Gyroscope, Accelerometer)
+  * **Architecture:** **MVC (Model-View-Controller)** for high maintainability and decoupled logic.
+  * **Performance:** Multi-threading via **Flutter Isolates** for zero-jank UI.
 
-### Setup Instructions
+-----
 
-#### Android
-1.  Set `minSdkVersion 24` in `android/app/build.gradle`.
-2.  Add permissions to `AndroidManifest.xml`:
-    ```xml
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+## Project Architecture
+
+MotionBalance follows a strict **MVC** pattern to ensure the codebase is scalable and testable:
+
+  * **Models:** Immutable state classes for Tracking, Sensors, and Camera status.
+  * **Views:** Highly optimized CustomPainters for the Reticle and Horizon Leveler.
+  * **Controllers:** \* `CameraNotifier`: Manages hardware lifecycle and image streams.
+      * `TrackingNotifier`: The "Brain" that performs coordinate mapping and sensor fusion.
+      * `SensorController`: Handles high-frequency IMU data stream.
+
+-----
+
+## Getting Started
+
+1.  **Clone the repo:**
+    ```bash
+    git clone https://github.com/your-username/motion-balance.git
     ```
-
-#### iOS
-1.  Add usage descriptions to `Info.plist`:
-    ```xml
-    <key>NSCameraUsageDescription</key>
-    <string>MotionBalance needs camera access to record stabilized video.</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>MotionBalance needs microphone access for video audio.</string>
-    <key>NSPhotoLibraryUsageDescription</key>
-    <string>Used to save and stabilize recorded clips.</string>
+2.  **Install dependencies:**
+    ```bash
+    flutter pub get
     ```
+3.  **Run the app:**
+    ```bash
+    flutter run --release
+    ```
+    *(Note: ML features and sensor fusion require a physical device for optimal performance.)*
 
----
+-----
 
-## 🛣 Phased Roadmap
+## Roadmap
 
-### Phase 1: MVP (Current)
-- [x] Basic Camera implementation.
-- [x] Live Horizon Leveler.
-- [x] Real-time Shake Meter.
-- [x] Device capability detection.
+  - [x] AI Subject Tracking
+  - [x] Haptic Feedback Engine
+  - [x] Sensor Fusion Guidance
+  - [ ] FFmpeg-based Post-Process Stabilization
+  - [ ] Object Tracking (TensorFlow Lite Integration)
 
-### Phase 2: Intelligence
-- [ ] Recording profiles (Walk, Pan, Vlog).
-- [ ] Dynamic guidance logic based on profile.
+-----
 
-### Phase 3: Post-Processing
-- [ ] FFmpeg vidstab integration.
-- [ ] Comparison View (Before/After).
+## Author
 
----
+**Kunal Gangani** *Master of Computer Applications (MCA) Student & Flutter Developer* [LinkedIn](https://www.google.com/search?q=https://www.linkedin.com/in/kunal-gangani/) | [GitHub](https://www.google.com/search?q=https://github.com/kunalgangani)
 
-## ⚠️ Important Disclaimer
-MotionBalance is a **software assistant**. It does not physically move the camera lens or housing. It relies on digital cropping and sensor feedback. For professional-grade cinematic stability, a physical 3-axis motorized gimbal is recommended.
-
----
-
-## 📄 License
-This project is licensed under the MIT License - see the LICENSE file for details.
+-----

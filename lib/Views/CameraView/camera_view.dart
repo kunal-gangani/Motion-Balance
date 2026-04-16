@@ -1,15 +1,18 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:motion_balance/Views/Widgets/recording_button.dart';
-import '../../Controllers/camera_controller.dart';
+import 'package:motion_balance/Controllers/camera_controller.dart';
+import 'package:motion_balance/Models/tracking_state.dart';
 import '../../Controllers/sensor_controller.dart';
 import '../../Services/camera_service.dart';
 import '../Widgets/camera_error_view.dart';
 import '../Widgets/horizon_leveler.dart';
+import '../Widgets/recording_button.dart';
 import '../Widgets/recording_timer.dart';
 import '../Widgets/stability_meter.dart';
 import '../Widgets/stabilization_badge.dart';
+import '../Widgets/tracking_overlay.dart';
+import '../../Controllers/tracking_controller.dart';
 
 class CameraScreen extends ConsumerWidget {
   const CameraScreen({super.key});
@@ -28,7 +31,7 @@ class CameraScreen extends ConsumerWidget {
         CameraScreenStatus.initializing =>
           const _LoadingView(),
         CameraScreenStatus.error => CameraErrorView(
-            message: cameraState.errorMessage ?? "Unknown error",
+            message: cameraState.errorMessage ?? 'Unknown error',
             onRetry: () =>
                 ref.read(cameraNotifierProvider.notifier).initialize(),
             onSettings: () => ref
@@ -71,55 +74,134 @@ class CameraPreviewLayout extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final CameraController? controller = cameraService.controller;
+    final trackingState = ref.watch(trackingProvider);
+
+    // For demonstration: you can turn this into a state variable later
+    const bool isComparisonMode = true;
 
     if (controller == null || !controller.value.isInitialized) {
       return const _LoadingView();
     }
 
+    final previewSize = Size(
+      controller.value.previewSize!.height,
+      controller.value.previewSize!.width,
+    );
+
     return Stack(
       fit: StackFit.expand,
       children: [
         CameraPreview(controller),
-        HorizonLeveler(
-          roll: sensorState.currentRoll,
-        ),
-        Positioned(
-          right: 20,
-          top: 140,
-          child: StabilityMeter(
-            intensity: sensorState.shakeIntensity,
+        if (isComparisonMode) ...[
+          Center(
+            child: Container(
+              width: 2,
+              color: Colors.white.withOpacity(0.3),
+            ),
           ),
-        ),
-        Positioned(
-          top: 70,
-          width: MediaQuery.of(context).size.width,
-          child: Center(
+          const Positioned(
+            left: 20,
+            bottom: 120,
             child: Text(
-              sensorState.guidanceText,
+              "RAW FEED",
               style: TextStyle(
-                color: sensorState.shakeIntensity > 3
-                    ? Colors.red
-                    : Colors.greenAccent,
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-                letterSpacing: 1.1,
+                color: Colors.white54,
+                fontSize: 10,
+                letterSpacing: 2,
               ),
             ),
           ),
+        ],
+        isComparisonMode
+            ? _buildComparisonOverlay(context, trackingState, previewSize)
+            : _buildFullOverlay(context, trackingState, previewSize),
+        HorizonLeveler(roll: sensorState.currentRoll),
+        _buildGuidanceUI(context, trackingState, sensorState),
+        _buildInterfaceOverlays(cameraState),
+      ],
+    );
+  }
+
+  Widget _buildComparisonOverlay(
+      BuildContext context, TrackingState tracking, Size previewSize) {
+    return Row(
+      children: [
+        const Spacer(),
+        Expanded(
+          child: CustomPaint(
+            painter: TrackingReticlePainter(
+              faceBox: tracking.faceBox,
+              imageSize: previewSize,
+              isLocked: tracking.isLocked,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFullOverlay(
+      BuildContext context, TrackingState tracking, Size previewSize) {
+    return CustomPaint(
+      size: MediaQuery.sizeOf(context),
+      painter: TrackingReticlePainter(
+        faceBox: tracking.faceBox,
+        imageSize: previewSize,
+        isLocked: tracking.isLocked,
+      ),
+    );
+  }
+
+  Widget _buildGuidanceUI(
+      BuildContext context, TrackingState tracking, SensorState sensor) {
+    return Positioned(
+      top: 70,
+      width: MediaQuery.sizeOf(context).width,
+      child: Column(
+        children: [
+          Text(
+            tracking.isLocked
+                ? "SUBJECT LOCKED: ${tracking.instruction}"
+                : "SEARCHING FOR SUBJECT...",
+            style: const TextStyle(
+              color: Colors.cyanAccent,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            sensor.guidanceText,
+            style: TextStyle(
+              color:
+                  sensor.shakeIntensity > 3 ? Colors.red : Colors.greenAccent,
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInterfaceOverlays(CameraState state) {
+    return Stack(
+      children: [
+        Positioned(
+          right: 20,
+          top: 140,
+          child: StabilityMeter(intensity: sensorState.shakeIntensity),
         ),
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                StabilizationBadge(
-                  mode: cameraState.stabilizationMode,
-                ),
+                StabilizationBadge(mode: state.stabilizationMode),
                 const Spacer(),
-                if (cameraState.isRecording)
-                  RecordingTimer(
-                    duration: cameraState.recordingDuration,
-                  ),
+                if (state.isRecording)
+                  RecordingTimer(duration: state.recordingDuration),
               ],
             ),
           ),
@@ -128,9 +210,7 @@ class CameraPreviewLayout extends ConsumerWidget {
           alignment: Alignment.bottomCenter,
           child: Padding(
             padding: const EdgeInsets.only(bottom: 36),
-            child: CameraBottomControls(
-              cameraState: cameraState,
-            ),
+            child: CameraBottomControls(cameraState: state),
           ),
         ),
       ],
@@ -148,7 +228,9 @@ class CameraBottomControls extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notifier = ref.read(cameraNotifierProvider.notifier);
+    final notifier = ref.read(
+      cameraNotifierProvider.notifier,
+    );
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -171,7 +253,7 @@ class CameraBottomControls extends ConsumerWidget {
             color: Colors.white,
             size: 28,
           ),
-          onPressed: notifier.openGallery,
+          onPressed: () => Navigator.of(context).pushNamed('/gallery'),
         ),
       ],
     );

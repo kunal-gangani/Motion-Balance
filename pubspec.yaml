@@ -20,6 +20,9 @@ dependencies:
   share_plus: ^13.0.0
   wakelock_plus: ^1.2.8
   cupertino_icons: ^1.0.8
+  google_mlkit_face_detection: ^0.13.2
+  google_mlkit_object_detection: ^0.15.1
+  vibration: ^3.1.8
 
 dev_dependencies:
   flutter_test:

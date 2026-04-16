@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:developer' show log;
 import 'dart:io';
-
+import 'dart:ui';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-
-// ─── Providers ────────────────────────────────────────────────────────────────
 
 final cameraServiceProvider = Provider<CameraService>((ref) {
   final service = CameraService();
@@ -15,17 +15,6 @@ final cameraServiceProvider = Provider<CameraService>((ref) {
   return service;
 });
 
-// ─── Enums & Data Classes ─────────────────────────────────────────────────────
-
-/// The three stabilization modes MotionBalance supports.
-///
-/// - [off]      : No stabilization applied.
-/// - [native]   : OS-level OIS/EIS. Enabled by re-initializing the controller
-///                at [ResolutionPreset.medium] or below — the camera plugin
-///                activates OIS automatically at those presets on most devices.
-///                There is NO `setVideoStabilizationMode` API in the Flutter
-///                camera plugin; stabilization is implicit.
-/// - [software] : Software warp via sensor data (Phase 2). Placeholder here.
 enum StabilizationMode { off, native, software }
 
 class CameraCapabilities {
@@ -54,8 +43,6 @@ class RecordingResult {
   });
 }
 
-// ─── Camera Service ───────────────────────────────────────────────────────────
-
 class CameraService {
   CameraController? _controller;
   List<CameraDescription> _cameras = [];
@@ -66,8 +53,6 @@ class CameraService {
   CameraCapabilities? _capabilities;
   DateTime? _recordingStartedAt;
   String? _lastError;
-
-  // ── Getters ────────────────────────────────────────────────────────────────
 
   CameraController? get controller => _controller;
   bool get isInitialized => _isInitialized;
@@ -85,8 +70,6 @@ class CameraService {
     return DateTime.now().difference(_recordingStartedAt!);
   }
 
-  // ── Initialization ─────────────────────────────────────────────────────────
-
   Future<void> initialize() async {
     _cameras = await availableCameras();
     if (_cameras.isEmpty) {
@@ -95,7 +78,6 @@ class CameraService {
 
     _capabilities = _detectCapabilities(_cameras);
 
-    // Prefer back camera
     final backIdx = _cameras.indexWhere(
       (c) => c.lensDirection == CameraLensDirection.back,
     );
@@ -109,11 +91,6 @@ class CameraService {
     StabilizationMode? modeOverride,
   }) async {
     final mode = modeOverride ?? _stabilizationMode;
-
-    // OIS/EIS on the Flutter camera plugin is NOT a runtime API call.
-    // It is implicitly activated by the OS at medium/low resolutions.
-    // - native mode  → ResolutionPreset.medium  (OS enables OIS/EIS)
-    // - off/software → ResolutionPreset.high    (OS may disable OIS)
     final preset = mode == StabilizationMode.native
         ? ResolutionPreset.medium
         : ResolutionPreset.high;
@@ -144,13 +121,10 @@ class CameraService {
     try {
       await controller.initialize();
 
-      // Set auto exposure & focus for best stability
       try {
         await controller.setExposureMode(ExposureMode.auto);
         await controller.setFocusMode(FocusMode.auto);
-      } catch (_) {
-        // Not critical — some devices/emulators don't support these
-      }
+      } catch (_) {}
 
       _isInitialized = true;
       _lastError = null;
@@ -162,13 +136,6 @@ class CameraService {
     }
   }
 
-  // ── Stabilization ──────────────────────────────────────────────────────────
-
-  /// Updates the stabilization mode.
-  ///
-  /// **Important**: The Flutter camera plugin has no `setVideoStabilizationMode`
-  /// call. To switch between native (OIS) and off, we re-initialize the
-  /// controller at a different [ResolutionPreset]. This is the correct approach.
   Future<void> setStabilizationMode(StabilizationMode mode) async {
     if (mode == _stabilizationMode) return;
     _stabilizationMode = mode;
@@ -181,14 +148,11 @@ class CameraService {
     }
   }
 
-  /// Returns the best mode this device can actually support.
   StabilizationMode bestAvailableStabilizationMode() {
     if (_capabilities == null) return StabilizationMode.off;
     if (_capabilities!.hasStabilization) return StabilizationMode.native;
     return StabilizationMode.off;
   }
-
-  // ── Camera Switching ───────────────────────────────────────────────────────
 
   Future<void> switchCamera() async {
     if (_cameras.length < 2) return;
@@ -198,8 +162,6 @@ class CameraService {
       modeOverride: _stabilizationMode,
     );
   }
-
-  // ── Recording ──────────────────────────────────────────────────────────────
 
   Future<void> startRecording() async {
     if (!_isInitialized || _isRecording || _controller == null) return;
@@ -237,8 +199,6 @@ class CameraService {
     }
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
   Future<void> setTorchMode(bool on) async {
     if (!_isInitialized || _controller == null) return;
     try {
@@ -261,23 +221,45 @@ class CameraService {
     return p.join(dir.path, 'mb_$ts.$extension');
   }
 
-  // ── Capability Detection ───────────────────────────────────────────────────
+  InputImage? inputImageFromCameraImage(
+      CameraImage image, CameraDescription sensor) {
+    final WriteBuffer allBytes = WriteBuffer();
+    for (final Plane plane in image.planes) {
+      allBytes.putUint8List(plane.bytes);
+    }
+    final bytes = allBytes.done().buffer.asUint8List();
+
+    final InputImageMetadata metadata = InputImageMetadata(
+      size: Size(image.width.toDouble(), image.height.toDouble()),
+      rotation: _getRotation(sensor.sensorOrientation),
+      format: _getFormat(image.format.group),
+      bytesPerRow: image.planes[0].bytesPerRow,
+    );
+
+    return InputImage.fromBytes(bytes: bytes, metadata: metadata);
+  }
+
+  InputImageRotation _getRotation(int orientation) {
+    return InputImageRotationValue.fromRawValue(orientation) ??
+        InputImageRotation.rotation0deg;
+  }
+
+  InputImageFormat _getFormat(ImageFormatGroup group) {
+    if (group == ImageFormatGroup.yuv420) return InputImageFormat.yuv420;
+    if (group == ImageFormatGroup.bgra8888) return InputImageFormat.bgra8888;
+    return InputImageFormat.nv21;
+  }
 
   CameraCapabilities _detectCapabilities(List<CameraDescription> cameras) {
     return CameraCapabilities(
-      // OIS is available on virtually all physical iOS/Android rear cameras.
-      // The plugin cannot query it directly — assume true on real devices.
       hasStabilization: Platform.isIOS || Platform.isAndroid,
       hasFrontCamera: cameras.any(
         (c) => c.lensDirection == CameraLensDirection.front,
       ),
-      // Heuristic: 3+ cameras usually means an ultra-wide is present
       hasUltraWide: cameras.length >= 3,
       maxResolution: ResolutionPreset.high,
     );
   }
-
-  // ── Dispose ────────────────────────────────────────────────────────────────
 
   Future<void> dispose() async {
     if (_isRecording) {

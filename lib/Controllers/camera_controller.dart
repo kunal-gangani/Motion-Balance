@@ -1,7 +1,13 @@
 import 'dart:async';
 import 'dart:developer' show log;
+
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:motion_balance/Controllers/tracking_controller.dart';
+
 import '../Services/camera_service.dart';
 import '../Services/permission_service.dart';
 
@@ -157,6 +163,46 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
     }
   }
 
+  bool _isProcessing = false;
+
+  void startImageStream(WidgetRef ref) {
+    final controller = _camera.controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    controller.startImageStream((CameraImage image) async {
+      if (_isProcessing) return;
+      _isProcessing = true;
+
+      try {
+        final sensor = controller.description;
+        final inputImage = _camera.inputImageFromCameraImage(image, sensor);
+
+        if (inputImage != null) {
+          // --- OFF-THREAD PROCESSING START ---
+          // Using 'compute' to run face detection in a background Isolate
+          final faces = await compute(_detectFacesInIsolate, inputImage);
+          // --- OFF-THREAD PROCESSING END ---
+
+          if (faces.isNotEmpty) {
+            final face = faces.first;
+            ref.read(trackingProvider.notifier).updateFacePosition(
+                  face.boundingBox,
+                  Size(image.width.toDouble(), image.height.toDouble()),
+                );
+          } else {
+            ref
+                .read(trackingProvider.notifier)
+                .updateFacePosition(null, Size.zero);
+          }
+        }
+      } catch (e) {
+        debugPrint("ML Isolate Error: $e");
+      } finally {
+        _isProcessing = false;
+      }
+    });
+  }
+
   Future<void> toggleRecording() async {
     if (state.isRecording) {
       await stopRecording();
@@ -213,3 +259,15 @@ final cameraNotifierProvider =
     NotifierProvider.autoDispose<CameraNotifier, CameraState>(
   CameraNotifier.new,
 );
+
+Future<List<Face>> _detectFacesInIsolate(InputImage inputImage) async {
+  final faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
+      performanceMode: FaceDetectorMode.fast,
+    ),
+  );
+
+  final List<Face> faces = await faceDetector.processImage(inputImage);
+  await faceDetector.close();
+  return faces;
+}
