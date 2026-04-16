@@ -15,7 +15,7 @@ class SensorState {
   const SensorState({
     this.currentShake = 0.0,
     this.currentRoll = 0.0,
-    this.guidanceText = "STABLE",
+    this.guidanceText = 'STABLE',
     this.smoothnessScore = 100.0,
     this.gyroscopeAvailable = true,
     this.accelerometerAvailable = true,
@@ -49,12 +49,11 @@ class SensorNotifier extends StateNotifier<SensorState> {
 
   double _lastMagnitude = 0.0;
   double _smoothedShake = 0.0;
+  static const double _alpha = 0.96;
+  double _filteredRoll = 0.0;
+  DateTime? _lastGyroTime;
 
   SensorNotifier() : super(const SensorState()) {
-    startListening();
-  }
-
-  void startListening() {
     _listenAccelerometer();
     _listenGyroscope();
   }
@@ -70,55 +69,60 @@ class SensorNotifier extends StateNotifier<SensorState> {
         _lastMagnitude = magnitude;
 
         _smoothedShake = (_smoothedShake * 0.8) + (delta * 0.2);
-        final double calculatedRoll = atan2(event.y, event.z) * (180 / pi);
+        final accelRoll = atan2(event.y, event.z) * (180 / pi);
+        _filteredRoll = _alpha * _filteredRoll + (1 - _alpha) * accelRoll;
 
         state = state.copyWith(
           currentShake: _smoothedShake,
-          currentRoll: calculatedRoll,
+          currentRoll: _filteredRoll,
           guidanceText: _generateGuidance(_smoothedShake),
           smoothnessScore: _calculateSmoothnessScore(_smoothedShake),
           accelerometerAvailable: true,
         );
       },
+      onError: (_) {
+        state = state.copyWith(accelerometerAvailable: false);
+      },
     );
   }
 
   void _listenGyroscope() {
-    _gyroSub = gyroscopeEventStream().listen(
+    _gyroSub = gyroscopeEventStream(
+      samplingPeriod: SensorInterval.uiInterval,
+    ).listen(
       (event) {
-        final roll = event.z * 8.0;
+        final now = DateTime.now();
+        final dt = _lastGyroTime != null
+            ? now.difference(_lastGyroTime!).inMicroseconds / 1e6
+            : 0.01;
+        _lastGyroTime = now;
+        final gyroDelta = event.z * dt * (180 / pi);
+        _filteredRoll = _alpha * (_filteredRoll + gyroDelta);
 
         state = state.copyWith(
-          currentRoll: roll,
           gyroscopeAvailable: true,
         );
       },
       onError: (_) {
-        state = state.copyWith(
-          gyroscopeAvailable: false,
-        );
+        state = state.copyWith(gyroscopeAvailable: false);
       },
     );
   }
 
   String _generateGuidance(double shake) {
-    if (shake > 6.0) {
-      return "REDUCE SUDDEN PANS";
-    } else if (shake > 4.0) {
-      return "MOVE SLOWER";
-    } else if (shake > 2.0) {
-      return "SMOOTH PANNING";
-    } else {
-      return "STABLE";
-    }
+    if (shake > 6.0) return 'Reduce sudden pans';
+    if (shake > 4.0) return 'Move slower';
+    if (shake > 2.0) return 'Smooth panning';
+    return 'Stable';
   }
 
   double _calculateSmoothnessScore(double shake) {
-    final score = 100 - (shake * 12);
-    return score.clamp(0, 100);
+    return (100 - (shake * 12)).clamp(0.0, 100.0);
   }
 
   void reset() {
+    _filteredRoll = 0.0;
+    _lastGyroTime = null;
     state = const SensorState();
   }
 
@@ -132,5 +136,5 @@ class SensorNotifier extends StateNotifier<SensorState> {
 
 final sensorControllerProvider =
     StateNotifierProvider<SensorNotifier, SensorState>(
-  (ref) => SensorNotifier(),
+  (_) => SensorNotifier(),
 );

@@ -2,11 +2,9 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:motion_balance/Views/Widgets/recording_button.dart';
-
 import '../../Controllers/camera_controller.dart';
 import '../../Controllers/sensor_controller.dart';
 import '../../Services/camera_service.dart';
-
 import '../Widgets/camera_error_view.dart';
 import '../Widgets/horizon_leveler.dart';
 import '../Widgets/recording_timer.dart';
