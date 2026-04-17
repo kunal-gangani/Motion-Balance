@@ -1,12 +1,7 @@
 import 'dart:math';
 import '../Models/motion_data.dart';
 
-enum StabilityLevel {
-  excellent,
-  good,
-  moderate,
-  poor,
-}
+enum StabilityLevel { excellent, good, moderate, poor }
 
 class StabilizationResult {
   final double smoothnessScore;
@@ -26,23 +21,19 @@ class StabilizationResult {
 
 class StabilizationService {
   static const double shakeThreshold = 1.8;
-  static const double panThreshold = 3.2;
-  static const double tiltThreshold = 12.0;
+  static const double panThreshold = 3.2;  
+  static const double tiltThreshold = 12.0; 
 
   StabilizationResult analyzeMotion(MotionData motion) {
     final shakeMagnitude = _calculateShakeMagnitude(motion);
-    final tiltAngle = _calculateTiltAngle(motion);
-    final suddenPan = _detectSuddenPan(motion);
+    final tiltAngle = motion.rollDegrees.abs();
+    final suddenPan = motion.gyroZ.abs() > panThreshold;
 
-    final smoothness = _calculateSmoothness(shakeMagnitude, tiltAngle, suddenPan);
-
+    final smoothness =
+        _calculateSmoothness(shakeMagnitude, tiltAngle, suddenPan);
     final level = _getStabilityLevel(smoothness);
-    final guidance = _generateGuidance(
-      shakeMagnitude,
-      tiltAngle,
-      suddenPan,
-      smoothness,
-    );
+    final guidance =
+        _generateGuidance(shakeMagnitude, tiltAngle, suddenPan, smoothness);
 
     return StabilizationResult(
       smoothnessScore: smoothness,
@@ -56,32 +47,18 @@ class StabilizationService {
   double _calculateShakeMagnitude(MotionData motion) {
     return sqrt(
       motion.accelX * motion.accelX +
-      motion.accelY * motion.accelY +
-      motion.accelZ * motion.accelZ,
+          motion.accelY * motion.accelY +
+          motion.accelZ * motion.accelZ,
     );
   }
 
-  double _calculateTiltAngle(MotionData motion) {
-    return atan2(motion.accelY, motion.accelX) * (180 / pi);
-  }
-
-  bool _detectSuddenPan(MotionData motion) {
-    return motion.gyroZ.abs() > panThreshold;
-  }
-
   double _calculateSmoothness(
-    double shake,
-    double tilt,
-    bool suddenPan,
-  ) {
+      double shake, double tilt, bool suddenPan) {
     double score = 100;
-
     score -= shake * 15;
-    score -= tilt.abs() * 0.8;
-
+    score -= tilt * 0.8;
     if (suddenPan) score -= 20;
-
-    return score.clamp(0, 100);
+    return score.clamp(0.0, 100.0);
   }
 
   StabilityLevel _getStabilityLevel(double score) {
@@ -92,27 +69,11 @@ class StabilizationService {
   }
 
   String _generateGuidance(
-    double shake,
-    double tilt,
-    bool suddenPan,
-    double score,
-  ) {
-    if (tilt.abs() > tiltThreshold) {
-      return "Hold phone level";
-    }
-
-    if (suddenPan) {
-      return "Reduce sudden pans";
-    }
-
-    if (shake > shakeThreshold) {
-      return "Move slower";
-    }
-
-    if (score < 40) {
-      return "Use both hands for steadier shot";
-    }
-
-    return "Stable shot";
+      double shake, double tilt, bool suddenPan, double score) {
+    if (tilt > tiltThreshold) return 'Hold phone level';
+    if (suddenPan) return 'Reduce sudden pans';
+    if (shake > shakeThreshold) return 'Move slower';
+    if (score < 40) return 'Use both hands for a steadier shot';
+    return 'Stable shot';
   }
 }

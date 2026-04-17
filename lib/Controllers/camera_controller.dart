@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:developer' show log;
-
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -66,6 +65,14 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
   late final PermissionService _permission;
   Timer? _timer;
 
+  final FaceDetector _faceDetector = FaceDetector(
+    options: FaceDetectorOptions(
+      performanceMode: FaceDetectorMode.fast,
+    ),
+  );
+
+  bool _isProcessing = false;
+
   @override
   CameraState build() {
     _camera = ref.watch(cameraServiceProvider);
@@ -75,6 +82,7 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
 
     ref.onDispose(() {
       _timer?.cancel();
+      _faceDetector.close();
     });
 
     return const CameraState();
@@ -87,7 +95,6 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
     );
 
     final perms = await _permission.requestAll();
-
     if (!ref.exists(cameraNotifierProvider)) return;
 
     if (!perms.allGranted) {
@@ -105,7 +112,6 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
 
     try {
       await _camera.initialize();
-
       if (!ref.exists(cameraNotifierProvider)) return;
 
       state = state.copyWith(
@@ -114,7 +120,6 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
         isFrontCamera: _camera.activeLensDirection == CameraLensDirection.front,
         clearErrorMessage: true,
       );
-
       log('Camera ready: ${_camera.activeLensDirection}');
     } catch (e) {
       if (!ref.exists(cameraNotifierProvider)) return;
@@ -124,6 +129,57 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
       );
       log('Camera init error: $e');
     }
+  }
+
+  void startImageStream() {
+    final controller = _camera.controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    controller.startImageStream((CameraImage image) async {
+      if (_isProcessing) return;
+      if (!ref.exists(cameraNotifierProvider)) return;
+      _isProcessing = true;
+
+      try {
+        final inputImage = _camera.inputImageFromCameraImage(
+          image,
+          controller.description,
+        );
+        if (inputImage == null) return;
+
+        final payload = _IsolatePayload(
+          bytes: inputImage.bytes ?? Uint8List(0),
+          width: image.width,
+          height: image.height,
+          rotation:
+              inputImage.metadata?.rotation ?? InputImageRotation.rotation0deg,
+          format: inputImage.metadata?.format ?? InputImageFormat.yuv420,
+        );
+
+        final faces = await compute(_detectFacesInIsolate, payload);
+
+        if (!ref.exists(cameraNotifierProvider)) return;
+
+        if (faces.isNotEmpty) {
+          ref.read(trackingProvider.notifier).updateFacePosition(
+                faces.first.boundingBox,
+                Size(image.width.toDouble(), image.height.toDouble()),
+              );
+        } else {
+          ref
+              .read(trackingProvider.notifier)
+              .updateFacePosition(null, Size.zero);
+        }
+      } catch (e) {
+        debugPrint('ML Isolate Error: $e');
+      } finally {
+        _isProcessing = false;
+      }
+    });
+  }
+
+  void stopImageStream() {
+    _camera.controller?.stopImageStream().catchError((_) {});
   }
 
   Future<void> startRecording() async {
@@ -138,10 +194,6 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
     } catch (e) {
       log('Start recording error: $e');
     }
-  }
-
-  void openGallery() {
-    log("Gallery opened");
   }
 
   Future<RecordingResult?> stopRecording() async {
@@ -161,46 +213,6 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
       log('Stop recording error: $e');
       return null;
     }
-  }
-
-  bool _isProcessing = false;
-
-  void startImageStream(WidgetRef ref) {
-    final controller = _camera.controller;
-    if (controller == null || !controller.value.isInitialized) return;
-
-    controller.startImageStream((CameraImage image) async {
-      if (_isProcessing) return;
-      _isProcessing = true;
-
-      try {
-        final sensor = controller.description;
-        final inputImage = _camera.inputImageFromCameraImage(image, sensor);
-
-        if (inputImage != null) {
-          // --- OFF-THREAD PROCESSING START ---
-          // Using 'compute' to run face detection in a background Isolate
-          final faces = await compute(_detectFacesInIsolate, inputImage);
-          // --- OFF-THREAD PROCESSING END ---
-
-          if (faces.isNotEmpty) {
-            final face = faces.first;
-            ref.read(trackingProvider.notifier).updateFacePosition(
-                  face.boundingBox,
-                  Size(image.width.toDouble(), image.height.toDouble()),
-                );
-          } else {
-            ref
-                .read(trackingProvider.notifier)
-                .updateFacePosition(null, Size.zero);
-          }
-        }
-      } catch (e) {
-        debugPrint("ML Isolate Error: $e");
-      } finally {
-        _isProcessing = false;
-      }
-    });
   }
 
   Future<void> toggleRecording() async {
@@ -253,6 +265,8 @@ class CameraNotifier extends AutoDisposeNotifier<CameraState> {
   }
 
   Future<void> openPermissionSettings() => _permission.openSettings();
+
+  void openGallery() => log('Gallery opened');
 }
 
 final cameraNotifierProvider =
@@ -260,14 +274,40 @@ final cameraNotifierProvider =
   CameraNotifier.new,
 );
 
-Future<List<Face>> _detectFacesInIsolate(InputImage inputImage) async {
-  final faceDetector = FaceDetector(
-    options: FaceDetectorOptions(
-      performanceMode: FaceDetectorMode.fast,
+class _IsolatePayload {
+  final Uint8List bytes;
+  final int width;
+  final int height;
+  final InputImageRotation rotation;
+  final InputImageFormat format;
+
+  const _IsolatePayload({
+    required this.bytes,
+    required this.width,
+    required this.height,
+    required this.rotation,
+    required this.format,
+  });
+}
+
+Future<List<Face>> _detectFacesInIsolate(_IsolatePayload payload) async {
+  final inputImage = InputImage.fromBytes(
+    bytes: payload.bytes,
+    metadata: InputImageMetadata(
+      size: Size(payload.width.toDouble(), payload.height.toDouble()),
+      rotation: payload.rotation,
+      format: payload.format,
+      bytesPerRow: payload.width,
     ),
   );
 
-  final List<Face> faces = await faceDetector.processImage(inputImage);
-  await faceDetector.close();
-  return faces;
+  final detector = FaceDetector(
+    options: FaceDetectorOptions(performanceMode: FaceDetectorMode.fast),
+  );
+
+  try {
+    return await detector.processImage(inputImage);
+  } finally {
+    await detector.close();
+  }
 }

@@ -14,24 +14,16 @@ class VideoPlayerNotifier
   VideoPlayerController? _controller;
 
   VideoPlayerNotifier(this.ref, this.videoPath) : super(const AsyncLoading()) {
-    initialize();
+    _initialize();
   }
 
-  Future<void> initialize() async {
+  Future<void> _initialize() async {
     try {
       final controller = VideoPlayerController.file(File(videoPath));
       await controller.initialize();
       _controller = controller;
 
-      controller.addListener(() {
-        if (mounted) {
-          state = AsyncData(controller);
-        }
-      });
-
-      ref.onDispose(() {
-        controller.dispose();
-      });
+      ref.onDispose(controller.dispose);
 
       state = AsyncData(controller);
     } catch (e, st) {
@@ -41,18 +33,24 @@ class VideoPlayerNotifier
 
   Future<void> playPause() async {
     final controller = _controller;
-    if (controller == null) {
-      return;
-    }
+    if (controller == null || !mounted) return;
 
     if (controller.value.isPlaying) {
       await controller.pause();
     } else {
       await controller.play();
     }
-
-    if (mounted) {
-      state = AsyncData(controller);
-    }
+    if (mounted) state = AsyncData(controller);
   }
+
+  Future<void> seekTo(Duration position) async {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+    await controller.seekTo(position);
+    if (mounted) state = AsyncData(controller);
+  }
+
+  bool get isPlaying => _controller?.value.isPlaying ?? false;
+  Duration get position => _controller?.value.position ?? Duration.zero;
+  Duration get duration => _controller?.value.duration ?? Duration.zero;
 }

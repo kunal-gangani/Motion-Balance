@@ -3,7 +3,6 @@ import 'dart:developer' show log;
 import 'dart:io';
 import 'dart:ui';
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:path/path.dart' as p;
@@ -17,18 +16,30 @@ final cameraServiceProvider = Provider<CameraService>((ref) {
 
 enum StabilizationMode { off, native, software }
 
+enum StabilizationLevel { native, softwareOnly, unsupported }
+
 class CameraCapabilities {
   final bool hasStabilization;
   final bool hasFrontCamera;
   final bool hasUltraWide;
+  final bool hasGyroscope;
+  final bool hasAccelerometer;
   final ResolutionPreset maxResolution;
 
   const CameraCapabilities({
     required this.hasStabilization,
     required this.hasFrontCamera,
     required this.hasUltraWide,
+    required this.hasGyroscope,
+    required this.hasAccelerometer,
     required this.maxResolution,
   });
+
+  StabilizationLevel get bestLevel {
+    if (hasStabilization) return StabilizationLevel.native;
+    if (hasGyroscope) return StabilizationLevel.softwareOnly;
+    return StabilizationLevel.unsupported;
+  }
 }
 
 class RecordingResult {
@@ -75,14 +86,10 @@ class CameraService {
     if (_cameras.isEmpty) {
       throw CameraException('no_cameras', 'No cameras found on device.');
     }
-
     _capabilities = _detectCapabilities(_cameras);
-
-    final backIdx = _cameras.indexWhere(
-      (c) => c.lensDirection == CameraLensDirection.back,
-    );
+    final backIdx =
+        _cameras.indexWhere((c) => c.lensDirection == CameraLensDirection.back);
     _activeCameraIndex = backIdx >= 0 ? backIdx : 0;
-
     await _initController(_cameras[_activeCameraIndex]);
   }
 
@@ -115,17 +122,14 @@ class CameraService {
           ? ImageFormatGroup.yuv420
           : ImageFormatGroup.bgra8888,
     );
-
     _controller = controller;
 
     try {
       await controller.initialize();
-
       try {
         await controller.setExposureMode(ExposureMode.auto);
         await controller.setFocusMode(FocusMode.auto);
       } catch (_) {}
-
       _isInitialized = true;
       _lastError = null;
       log('[CameraService] initialized: ${camera.lensDirection}, preset: $preset');
@@ -139,28 +143,23 @@ class CameraService {
   Future<void> setStabilizationMode(StabilizationMode mode) async {
     if (mode == _stabilizationMode) return;
     _stabilizationMode = mode;
-
     if (_isInitialized && _cameras.isNotEmpty) {
-      await _initController(
-        _cameras[_activeCameraIndex],
-        modeOverride: mode,
-      );
+      await _initController(_cameras[_activeCameraIndex], modeOverride: mode);
     }
   }
 
   StabilizationMode bestAvailableStabilizationMode() {
     if (_capabilities == null) return StabilizationMode.off;
-    if (_capabilities!.hasStabilization) return StabilizationMode.native;
-    return StabilizationMode.off;
+    return _capabilities!.hasStabilization
+        ? StabilizationMode.native
+        : StabilizationMode.off;
   }
 
   Future<void> switchCamera() async {
     if (_cameras.length < 2) return;
     _activeCameraIndex = (_activeCameraIndex + 1) % _cameras.length;
-    await _initController(
-      _cameras[_activeCameraIndex],
-      modeOverride: _stabilizationMode,
-    );
+    await _initController(_cameras[_activeCameraIndex],
+        modeOverride: _stabilizationMode);
   }
 
   Future<void> startRecording() async {
@@ -217,32 +216,29 @@ class CameraService {
 
   Future<String> buildOutputPath({String extension = 'mp4'}) async {
     final dir = await getApplicationDocumentsDirectory();
+    final recordingsDir = Directory(p.join(dir.path, 'recordings'));
+    if (!await recordingsDir.exists()) {
+      await recordingsDir.create(recursive: true);
+    }
     final ts = DateTime.now().millisecondsSinceEpoch;
-    return p.join(dir.path, 'mb_$ts.$extension');
+    return p.join(recordingsDir.path, 'mb_$ts.$extension');
   }
 
   InputImage? inputImageFromCameraImage(
       CameraImage image, CameraDescription sensor) {
-    final WriteBuffer allBytes = WriteBuffer();
-    for (final Plane plane in image.planes) {
-      allBytes.putUint8List(plane.bytes);
-    }
-    final bytes = allBytes.done().buffer.asUint8List();
-
-    final InputImageMetadata metadata = InputImageMetadata(
+    final yPlane = image.planes[0];
+    final metadata = InputImageMetadata(
       size: Size(image.width.toDouble(), image.height.toDouble()),
       rotation: _getRotation(sensor.sensorOrientation),
       format: _getFormat(image.format.group),
-      bytesPerRow: image.planes[0].bytesPerRow,
+      bytesPerRow: yPlane.bytesPerRow,
     );
-
-    return InputImage.fromBytes(bytes: bytes, metadata: metadata);
+    return InputImage.fromBytes(bytes: yPlane.bytes, metadata: metadata);
   }
 
-  InputImageRotation _getRotation(int orientation) {
-    return InputImageRotationValue.fromRawValue(orientation) ??
-        InputImageRotation.rotation0deg;
-  }
+  InputImageRotation _getRotation(int orientation) =>
+      InputImageRotationValue.fromRawValue(orientation) ??
+      InputImageRotation.rotation0deg;
 
   InputImageFormat _getFormat(ImageFormatGroup group) {
     if (group == ImageFormatGroup.yuv420) return InputImageFormat.yuv420;
@@ -253,10 +249,11 @@ class CameraService {
   CameraCapabilities _detectCapabilities(List<CameraDescription> cameras) {
     return CameraCapabilities(
       hasStabilization: Platform.isIOS || Platform.isAndroid,
-      hasFrontCamera: cameras.any(
-        (c) => c.lensDirection == CameraLensDirection.front,
-      ),
+      hasFrontCamera:
+          cameras.any((c) => c.lensDirection == CameraLensDirection.front),
       hasUltraWide: cameras.length >= 3,
+      hasGyroscope: true,
+      hasAccelerometer: true,
       maxResolution: ResolutionPreset.high,
     );
   }

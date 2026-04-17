@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 final permissionServiceProvider = Provider<PermissionService>(
-  (ref) => PermissionService(),
+  (_) => PermissionService(),
 );
 
 class PermissionStatusModel {
@@ -18,40 +18,14 @@ class PermissionStatusModel {
   });
 
   bool get allGranted => cameraGranted && microphoneGranted;
-
   bool get anyDenied => !cameraGranted || !microphoneGranted;
-
-  PermissionStatusModel copyWith({
-    bool? cameraGranted,
-    bool? microphoneGranted,
-    bool? storageGranted,
-  }) {
-    return PermissionStatusModel(
-      cameraGranted: cameraGranted ?? this.cameraGranted,
-      microphoneGranted: microphoneGranted ?? this.microphoneGranted,
-      storageGranted: storageGranted ?? this.storageGranted,
-    );
-  }
-
-  @override
-  String toString() {
-    return '''
-PermissionStatusModel(
-camera: $cameraGranted,
-microphone: $microphoneGranted,
-storage: $storageGranted
-)
-''';
-  }
 }
 
 class PermissionService {
   Future<PermissionStatusModel> requestAll() async {
     final camera = await Permission.camera.request();
     final microphone = await Permission.microphone.request();
-
     final storage = await _requestStoragePermission();
-
     return PermissionStatusModel(
       cameraGranted: camera.isGranted,
       microphoneGranted: microphone.isGranted,
@@ -62,9 +36,7 @@ class PermissionService {
   Future<PermissionStatusModel> checkAll() async {
     final camera = await Permission.camera.status;
     final microphone = await Permission.microphone.status;
-
     final storage = await _checkStoragePermission();
-
     return PermissionStatusModel(
       cameraGranted: camera.isGranted,
       microphoneGranted: microphone.isGranted,
@@ -72,74 +44,54 @@ class PermissionService {
     );
   }
 
-  Future<bool> requestCamera() async {
-    final result = await Permission.camera.request();
-    return result.isGranted;
-  }
+  Future<bool> requestCamera() async =>
+      (await Permission.camera.request()).isGranted;
 
-  Future<bool> requestMicrophone() async {
-    final result = await Permission.microphone.request();
-    return result.isGranted;
-  }
+  Future<bool> requestMicrophone() async =>
+      (await Permission.microphone.request()).isGranted;
 
-  Future<void> openSettings() async {
-    await openAppSettings();
-  }
+  Future<void> openSettings() async => openAppSettings();
 
   Future<bool> isPermanentlyDenied() async {
     final cam = await Permission.camera.status;
     final mic = await Permission.microphone.status;
-
     return cam.isPermanentlyDenied || mic.isPermanentlyDenied;
   }
 
   Future<bool> _requestStoragePermission() async {
-    if (Platform.isIOS) {
-      return true;
-    }
-
+    if (Platform.isIOS) return true;
     if (Platform.isAndroid) {
-      final sdkVersion = await _getAndroidSdkVersion();
-
-      if (sdkVersion >= 33) {
+      final sdk = await _getAndroidSdkVersion();
+      if (sdk >= 33) {
         final photos = await Permission.photos.request();
         final videos = await Permission.videos.request();
-
         return photos.isGranted || videos.isGranted;
-      } else {
-        final storage = await Permission.storage.request();
-        return storage.isGranted;
       }
+      return (await Permission.storage.request()).isGranted;
     }
-
     return true;
   }
 
   Future<bool> _checkStoragePermission() async {
     if (Platform.isIOS) return true;
-
     if (Platform.isAndroid) {
-      final sdkVersion = await _getAndroidSdkVersion();
-
-      if (sdkVersion >= 33) {
+      final sdk = await _getAndroidSdkVersion();
+      if (sdk >= 33) {
         final photos = await Permission.photos.status;
         final videos = await Permission.videos.status;
-
         return photos.isGranted || videos.isGranted;
-      } else {
-        final storage = await Permission.storage.status;
-        return storage.isGranted;
       }
+      return (await Permission.storage.status).isGranted;
     }
-
     return true;
   }
 
   Future<int> _getAndroidSdkVersion() async {
     try {
-      return int.parse(Platform.operatingSystemVersion
-          .replaceAll(RegExp(r'[^0-9]'), '')
-          .substring(0, 2));
+      final match = RegExp(r'\d+').firstMatch(Platform.operatingSystemVersion);
+      if (match == null) return 33; // safe default
+      final value = int.tryParse(match.group(0)!) ?? 33;
+      return (value >= 21 && value <= 99) ? value : 33;
     } catch (_) {
       return 33;
     }

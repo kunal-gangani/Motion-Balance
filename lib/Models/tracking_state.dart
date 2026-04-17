@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'package:flutter/material.dart';
 
 class TrackingState {
   final Rect? faceBox;
@@ -10,17 +10,18 @@ class TrackingState {
     this.faceBox,
     this.relativeOffset = Offset.zero,
     this.isLocked = false,
-    this.instruction = "Searching for subject...",
+    this.instruction = 'Searching...',
   });
 
   TrackingState copyWith({
     Rect? faceBox,
+    bool clearFaceBox = false,
     Offset? relativeOffset,
     bool? isLocked,
     String? instruction,
   }) {
     return TrackingState(
-      faceBox: faceBox ?? this.faceBox,
+      faceBox: clearFaceBox ? null : (faceBox ?? this.faceBox),
       relativeOffset: relativeOffset ?? this.relativeOffset,
       isLocked: isLocked ?? this.isLocked,
       instruction: instruction ?? this.instruction,
