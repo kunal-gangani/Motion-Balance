@@ -27,11 +27,17 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeOutBack,
+      ),
     );
 
     _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeIn,
+      ),
     );
 
     _controller.forward();
@@ -49,7 +55,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.edgeToEdge,
+    );
     _controller.dispose();
     super.dispose();
   }
@@ -77,7 +85,7 @@ class _SplashScreenState extends State<SplashScreen>
                 child: FadeTransition(
                   opacity: _opacityAnimation,
                   child: Image.asset(
-                    'assets/icons/app_icon.png',
+                    'lib/Assets/Icons/Motion_Balance.png',
                     width: 150,
                     height: 150,
                   ),
@@ -103,6 +111,7 @@ class _SplashScreenState extends State<SplashScreen>
                 child: Text(
                   'Smooth. Balanced. Cinematic.',
                   style: TextStyle(
+                    // ignore: deprecated_member_use
                     color: Colors.white.withOpacity(0.8),
                     fontSize: 16,
                     letterSpacing: 1.2,
@@ -113,9 +122,7 @@ class _SplashScreenState extends State<SplashScreen>
               const SizedBox(height: 80),
               FadeTransition(
                 opacity: _opacityAnimation,
-                child: const CircularProgressIndicator(
-                  color: Colors.white,
-                ),
+                child: const CircularProgressIndicator(color: Colors.white),
               ),
             ],
           ),

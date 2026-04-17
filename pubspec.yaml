@@ -34,3 +34,8 @@ flutter:
   uses-material-design: true
   assets:
     - lib/Assets/Icons/
+
+  fonts:
+    - family: RussoOne
+      fonts:
+        - asset: lib/Assets/Fonts/RussoOne-Regular.ttf
