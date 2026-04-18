@@ -1,18 +1,27 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:motion_balance/Controllers/camera_controller.dart';
-import 'package:motion_balance/Models/tracking_state.dart';
+import 'package:motion_balance/Views/Widgets/false_colour_overlay.dart';
+import '../../Controllers/camera_controller.dart';
+import '../../Controllers/pro_monitoring_controller.dart';
 import '../../Controllers/sensor_controller.dart';
+import '../../Controllers/stabilization_intelligence_controller.dart';
+import '../../Controllers/tracking_controller.dart';
+import '../../Models/tracking_state.dart';
 import '../../Services/camera_service.dart';
 import '../Widgets/camera_error_view.dart';
+import '../Widgets/focus_peaking_overlay.dart';
+import '../Widgets/histogram_overlay.dart';
 import '../Widgets/horizon_leveler.dart';
+import '../Widgets/pro_monitoring_widgets.dart';
 import '../Widgets/recording_button.dart';
 import '../Widgets/recording_timer.dart';
+import '../Widgets/shot_type_badge.dart';
 import '../Widgets/stability_meter.dart';
 import '../Widgets/stabilization_badge.dart';
 import '../Widgets/tracking_overlay.dart';
-import '../../Controllers/tracking_controller.dart';
 
 class CameraScreen extends ConsumerWidget {
   const CameraScreen({super.key});
@@ -52,14 +61,11 @@ class _LoadingView extends StatelessWidget {
   const _LoadingView();
 
   @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: CircularProgressIndicator(color: Colors.white),
-    );
-  }
+  Widget build(BuildContext context) =>
+      const Center(child: CircularProgressIndicator(color: Colors.white));
 }
 
-class CameraPreviewLayout extends ConsumerWidget {
+class CameraPreviewLayout extends ConsumerStatefulWidget {
   final CameraState cameraState;
   final CameraService cameraService;
   final SensorState sensorState;
@@ -72,12 +78,57 @@ class CameraPreviewLayout extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final CameraController? controller = cameraService.controller;
+  ConsumerState<CameraPreviewLayout> createState() =>
+      _CameraPreviewLayoutState();
+}
+
+class _CameraPreviewLayoutState extends ConsumerState<CameraPreviewLayout> {
+  bool _streamStarted = false;
+  bool _isComparisonMode = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeStartStream());
+  }
+
+  @override
+  void didUpdateWidget(CameraPreviewLayout old) {
+    super.didUpdateWidget(old);
+    _maybeStartStream();
+  }
+
+  void _maybeStartStream() {
+    if (!mounted) return;
+    final controller = widget.cameraService.controller;
+    if (!_streamStarted &&
+        controller != null &&
+        controller.value.isInitialized) {
+      ref.read(cameraNotifierProvider.notifier).startImageStream();
+
+      controller.startImageStream((CameraImage image) {
+        ref.read(proMonitoringProvider.notifier).processFrame(image);
+      });
+
+      ref.read(proMonitoringProvider.notifier).updateFps(30.0);
+      _streamStarted = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    ref.read(cameraNotifierProvider.notifier).stopImageStream();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final CameraController? controller = widget.cameraService.controller;
     final trackingState = ref.watch(trackingProvider);
 
-    // For demonstration: you can turn this into a state variable later
-    const bool isComparisonMode = true;
+    ref.listen(stabilizationIntelligenceProvider, (_, next) {
+      ref.read(sensorControllerProvider.notifier).updateRoll(next.rollDegrees);
+    });
 
     if (controller == null || !controller.value.isInitialized) {
       return const _LoadingView();
@@ -92,18 +143,17 @@ class CameraPreviewLayout extends ConsumerWidget {
       fit: StackFit.expand,
       children: [
         CameraPreview(controller),
-        if (isComparisonMode) ...[
+        const FalseColorOverlay(),
+        const FocusPeakingOverlay(),
+        if (_isComparisonMode) ...[
           Center(
-            child: Container(
-              width: 2,
-              color: Colors.white.withOpacity(0.3),
-            ),
+            child: Container(width: 2, color: Colors.white.withOpacity(0.3)),
           ),
           const Positioned(
             left: 20,
             bottom: 120,
             child: Text(
-              "RAW FEED",
+              'RAW FEED',
               style: TextStyle(
                 color: Colors.white54,
                 fontSize: 10,
@@ -112,18 +162,24 @@ class CameraPreviewLayout extends ConsumerWidget {
             ),
           ),
         ],
-        isComparisonMode
-            ? _buildComparisonOverlay(context, trackingState, previewSize)
+        _isComparisonMode
+            ? _buildComparisonOverlay(trackingState, previewSize)
             : _buildFullOverlay(context, trackingState, previewSize),
-        HorizonLeveler(roll: sensorState.currentRoll),
-        _buildGuidanceUI(context, trackingState, sensorState),
-        _buildInterfaceOverlays(cameraState),
+        HorizonLeveler(roll: widget.sensorState.currentRoll),
+        _buildGuidanceUI(context, trackingState),
+        const HistogramOverlay(),
+        const Positioned(
+          left: 16,
+          top: 0,
+          bottom: 0,
+          child: Center(child: AudioLevelMeter()),
+        ),
+        _buildInterfaceOverlays(context),
       ],
     );
   }
 
-  Widget _buildComparisonOverlay(
-      BuildContext context, TrackingState tracking, Size previewSize) {
+  Widget _buildComparisonOverlay(TrackingState tracking, Size previewSize) {
     return Row(
       children: [
         const Spacer(),
@@ -152,8 +208,8 @@ class CameraPreviewLayout extends ConsumerWidget {
     );
   }
 
-  Widget _buildGuidanceUI(
-      BuildContext context, TrackingState tracking, SensorState sensor) {
+  Widget _buildGuidanceUI(BuildContext context, TrackingState tracking) {
+    final sensor = widget.sensorState;
     return Positioned(
       top: 70,
       width: MediaQuery.sizeOf(context).width,
@@ -161,15 +217,15 @@ class CameraPreviewLayout extends ConsumerWidget {
         children: [
           Text(
             tracking.isLocked
-                ? "SUBJECT LOCKED: ${tracking.instruction}"
-                : "SEARCHING FOR SUBJECT...",
+                ? 'Subject locked: ${tracking.instruction}'
+                : 'Searching for subject...',
             style: const TextStyle(
               color: Colors.cyanAccent,
               fontWeight: FontWeight.bold,
               fontSize: 14,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             sensor.guidanceText,
             style: TextStyle(
@@ -185,21 +241,55 @@ class CameraPreviewLayout extends ConsumerWidget {
     );
   }
 
-  Widget _buildInterfaceOverlays(CameraState state) {
+  Widget _buildInterfaceOverlays(BuildContext context) {
+    final state = widget.cameraState;
     return Stack(
       children: [
         Positioned(
           right: 20,
           top: 140,
-          child: StabilityMeter(intensity: sensorState.shakeIntensity),
+          child: StabilityMeter(intensity: widget.sensorState.shakeIntensity),
+        ),
+        const Positioned(
+          right: 14,
+          top: 300,
+          child: ShutterRuleBadge(),
         ),
         SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
                 StabilizationBadge(mode: state.stabilizationMode),
+                const SizedBox(width: 8),
+                const ShotTypePill(),
                 const Spacer(),
+                // Comparison mode toggle
+                GestureDetector(
+                  onTap: () =>
+                      setState(() => _isComparisonMode = !_isComparisonMode),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _isComparisonMode
+                          ? Colors.white.withOpacity(0.15)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.white30, width: 0.5),
+                    ),
+                    child: Text(
+                      _isComparisonMode ? 'COMP ON' : 'COMP OFF',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 if (state.isRecording)
                   RecordingTimer(duration: state.recordingDuration),
               ],
@@ -210,7 +300,14 @@ class CameraPreviewLayout extends ConsumerWidget {
           alignment: Alignment.bottomCenter,
           child: Padding(
             padding: const EdgeInsets.only(bottom: 36),
-            child: CameraBottomControls(cameraState: state),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const ProMonitoringToolbar(),
+                const SizedBox(height: 16),
+                CameraBottomControls(cameraState: state),
+              ],
+            ),
           ),
         ),
       ],
@@ -221,17 +318,11 @@ class CameraPreviewLayout extends ConsumerWidget {
 class CameraBottomControls extends ConsumerWidget {
   final CameraState cameraState;
 
-  const CameraBottomControls({
-    super.key,
-    required this.cameraState,
-  });
+  const CameraBottomControls({super.key, required this.cameraState});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notifier = ref.read(
-      cameraNotifierProvider.notifier,
-    );
-
+    final notifier = ref.read(cameraNotifierProvider.notifier);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
@@ -248,11 +339,7 @@ class CameraBottomControls extends ConsumerWidget {
           onTap: notifier.toggleRecording,
         ),
         IconButton(
-          icon: const Icon(
-            Icons.video_library,
-            color: Colors.white,
-            size: 28,
-          ),
+          icon: const Icon(Icons.video_library, color: Colors.white, size: 28),
           onPressed: () => Navigator.of(context).pushNamed('/gallery'),
         ),
       ],

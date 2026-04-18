@@ -7,18 +7,11 @@ import 'package:video_player/video_player.dart';
 class VideoPlayerScreen extends ConsumerWidget {
   final String videoPath;
 
-  const VideoPlayerScreen({
-    super.key,
-    required this.videoPath,
-  });
+  const VideoPlayerScreen({super.key, required this.videoPath});
 
   Future<void> _shareVideo() async {
     await SharePlus.instance.share(
-      ShareParams(
-        files: [
-          XFile(videoPath),
-        ],
-      ),
+      ShareParams(files: [XFile(videoPath)]),
     );
   }
 
@@ -29,41 +22,41 @@ class VideoPlayerScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text("Playback"),
+        title: const Text('Playback'),
         backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
-            onPressed: () {
-              _shareVideo();
-            },
+            onPressed: _shareVideo,
           ),
         ],
       ),
       body: playerState.when(
         loading: () => const Center(
-          child: CircularProgressIndicator(),
+          child: CircularProgressIndicator(
+            color: Colors.white,
+          ),
         ),
         error: (error, _) => Center(
           child: Text(
             error.toString(),
-            style: const TextStyle(color: Colors.white),
+            style: const TextStyle(
+              color: Colors.white,
+            ),
           ),
         ),
-        data: (controller) {
-          return Center(
-            child: AspectRatio(
-              aspectRatio: controller.value.aspectRatio,
-              child: VideoPlayer(controller),
-            ),
-          );
-        },
+        data: (controller) => Center(
+          child: AspectRatio(
+            aspectRatio: controller.value.aspectRatio,
+            child: VideoPlayer(controller),
+          ),
+        ),
       ),
       floatingActionButton: playerState.maybeWhen(
         data: (_) => FloatingActionButton(
-          onPressed: () {
-            ref.read(videoPlayerProvider(videoPath).notifier).playPause();
-          },
+          onPressed: () =>
+              ref.read(videoPlayerProvider(videoPath).notifier).playPause(),
           child: Icon(
             playerState.valueOrNull?.value.isPlaying == true
                 ? Icons.pause

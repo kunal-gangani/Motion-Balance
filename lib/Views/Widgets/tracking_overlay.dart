@@ -32,18 +32,19 @@ class TrackingReticlePainter extends CustomPainter {
 
     const double cornerSize = 20.0;
     final path = Path()
-      // Top Left
+      // Top left
       ..moveTo(rect.left, rect.top + cornerSize)
       ..lineTo(rect.left, rect.top)
       ..lineTo(rect.left + cornerSize, rect.top)
-      // Top Right
+      // Top right
       ..moveTo(rect.right - cornerSize, rect.top)
       ..lineTo(rect.right, rect.top)
       ..lineTo(rect.right, rect.top + cornerSize)
-      // Bottom Left
+      // Bottom left
       ..moveTo(rect.left, rect.bottom - cornerSize)
       ..lineTo(rect.left, rect.bottom)
       ..lineTo(rect.left + cornerSize, rect.bottom)
+      // Bottom right
       ..moveTo(rect.right - cornerSize, rect.bottom)
       ..lineTo(rect.right, rect.bottom)
       ..lineTo(rect.right, rect.bottom - cornerSize);
@@ -53,5 +54,9 @@ class TrackingReticlePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant TrackingReticlePainter oldDelegate) => true;
+  bool shouldRepaint(covariant TrackingReticlePainter oldDelegate) {
+    return oldDelegate.faceBox != faceBox ||
+        oldDelegate.imageSize != imageSize ||
+        oldDelegate.isLocked != isLocked;
+  }
 }

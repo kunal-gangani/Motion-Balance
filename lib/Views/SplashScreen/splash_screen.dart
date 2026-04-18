@@ -55,9 +55,7 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.edgeToEdge,
-    );
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _controller.dispose();
     super.dispose();
   }
@@ -111,7 +109,6 @@ class _SplashScreenState extends State<SplashScreen>
                 child: Text(
                   'Smooth. Balanced. Cinematic.',
                   style: TextStyle(
-                    // ignore: deprecated_member_use
                     color: Colors.white.withOpacity(0.8),
                     fontSize: 16,
                     letterSpacing: 1.2,
